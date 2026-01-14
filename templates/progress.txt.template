@@ -1,0 +1,12 @@
+## Codebase Patterns
+
+See patterns.md for accumulated patterns from previous runs.
+
+---
+
+# Ralph Progress Log
+Started: {{DATE}}
+Branch: {{BRANCH_NAME}}
+Run: {{RUN_NAME}}
+
+<!-- Ralph appends entries below -->

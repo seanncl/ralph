@@ -1,0 +1,35 @@
+# Persistent Codebase Patterns
+
+> Patterns accumulated across all Ralph runs. This file is never deleted.
+> When switching PRDs/branches, patterns from progress.txt are preserved here.
+
+---
+
+## How to Use This File
+
+1. Ralph reads this file at the start of each iteration
+2. Patterns help avoid repeating past mistakes
+3. Add patterns when you discover something reusable
+4. Organize by category (see examples below)
+
+---
+
+## Project Patterns
+
+<!-- Add project-specific patterns discovered during Ralph runs -->
+
+---
+
+## Testing Patterns
+
+<!-- Add testing patterns (e.g., which tests to run, common failures) -->
+
+---
+
+## Common Gotchas
+
+<!-- Add things that caused issues and how to avoid them -->
+
+---
+
+<!-- Ralph appends learnings from archived runs below -->

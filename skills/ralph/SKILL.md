@@ -1,36 +1,369 @@
 ---
 name: ralph
-description: "Convert PRDs to prd.json format for the Ralph autonomous agent system. Use when you have an existing PRD and need to convert it to Ralph's JSON format. Triggers on: convert this prd, turn this into ralph format, create prd.json from this, ralph json."
+description: "Ralph autonomous agent system. Just run /ralph and it handles everything - auto-detects setup, initializes if needed, syncs templates, and guides you to work on the PRD. Triggers on: /ralph, ralph, run ralph, setup ralph."
 ---
 
-# Ralph PRD Converter
+# Ralph - Autonomous AI Agent Loop
 
-Converts existing PRDs to the prd.json format that Ralph uses for autonomous execution.
-
----
-
-## The Job
-
-Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph directory.
+Ralph runs Claude Code repeatedly until all PRD items are complete. **Just run `/ralph` and it handles everything automatically.**
 
 ---
 
-## Output Format
+## How To Use
 
+```bash
+/ralph
+```
+
+That's it. The skill will:
+1. Auto-detect if Ralph is set up in your project
+2. Auto-initialize if not (creates everything)
+3. Auto-sync templates if outdated
+4. Auto-detect run name from git branch
+5. Guide you to work on the PRD
+
+---
+
+## What You Do (When This Skill Runs)
+
+### Step 1: Detect Project State
+
+Check if Ralph is set up in this project:
+
+```bash
+# Check for ralph directory
+ls -la scripts/ralph/ 2>/dev/null
+
+# Check for ralph.sh
+ls -la scripts/ralph/ralph.sh 2>/dev/null
+
+# Get current git branch
+git branch --show-current
+```
+
+### Step 2: Auto-Initialize (If New Project)
+
+If `scripts/ralph/` doesn't exist, create everything:
+
+```bash
+# Create directory structure
+mkdir -p scripts/ralph/runs
+
+# Get run name from branch (ralph/feature-name -> feature-name)
+BRANCH=$(git branch --show-current)
+if [[ "$BRANCH" == ralph/* ]]; then
+    RUN_NAME="${BRANCH#ralph/}"
+else
+    # Ask user for run name if not on ralph/* branch
+    RUN_NAME="default"
+fi
+
+mkdir -p "scripts/ralph/runs/$RUN_NAME"
+```
+
+Then copy templates from `~/.claude/templates/ralph/`:
+
+| Source | Destination |
+|--------|-------------|
+| `ralph.sh` | `scripts/ralph/ralph.sh` |
+| `config.template` | `scripts/ralph/config` |
+| `patterns.md.template` | `scripts/ralph/patterns.md` |
+| `prompt.md` | `scripts/ralph/runs/$RUN_NAME/prompt.md` |
+| `progress.txt.template` | `scripts/ralph/runs/$RUN_NAME/progress.txt` |
+| `prd.json.example` | `scripts/ralph/runs/$RUN_NAME/prd.json` |
+
+**Replace placeholders** in copied files:
+- `{{RUN_NAME}}` → actual run name
+- `{{DATE}}` → current date
+- `{{BRANCH_NAME}}` → current git branch
+
+**Make executable:**
+```bash
+chmod +x scripts/ralph/ralph.sh
+```
+
+### Step 3: Auto-Sync (If Existing Project)
+
+If Ralph exists, check version and sync if needed:
+
+```bash
+# Get template version
+TEMPLATE_VERSION=$(cat ~/.claude/templates/ralph/VERSION)
+
+# Get project version (from ralph.sh)
+PROJECT_VERSION=$(grep 'RALPH_VERSION=' scripts/ralph/ralph.sh | cut -d'"' -f2)
+
+NEEDS_SYNC=false
+
+# Check version mismatch
+if [ "$TEMPLATE_VERSION" != "$PROJECT_VERSION" ]; then
+    NEEDS_SYNC=true
+fi
+
+# Also check for outdated content in prompt.md (e.g., chrome-devtools instead of Playwright)
+for run_dir in scripts/ralph/runs/*/; do
+    if [ -f "$run_dir/prompt.md" ]; then
+        if grep -q "chrome-devtools" "$run_dir/prompt.md" 2>/dev/null; then
+            echo "⚠️  Detected outdated prompt.md (uses chrome-devtools instead of Playwright)"
+            NEEDS_SYNC=true
+        fi
+        if grep -q "dev-browser" "$run_dir/prompt.md" 2>/dev/null; then
+            echo "⚠️  Detected outdated prompt.md (uses dev-browser instead of Playwright MCP)"
+            NEEDS_SYNC=true
+        fi
+    fi
+done
+
+if [ "$NEEDS_SYNC" = true ]; then
+    # Update ralph.sh
+    cp ~/.claude/templates/ralph/ralph.sh scripts/ralph/ralph.sh
+    chmod +x scripts/ralph/ralph.sh
+
+    # Update prompt.md in all run directories
+    for run_dir in scripts/ralph/runs/*/; do
+        cp ~/.claude/templates/ralph/prompt.md "$run_dir/prompt.md"
+        # Replace {{RUN_NAME}} placeholder
+        RUN_NAME=$(basename "$run_dir")
+        sed -i '' "s/{{RUN_NAME}}/$RUN_NAME/g" "$run_dir/prompt.md"
+    done
+
+    echo "✅ Synced templates to v$TEMPLATE_VERSION"
+    echo "   - ralph.sh updated"
+    echo "   - prompt.md updated (now uses Playwright MCP)"
+fi
+```
+
+**What gets UPDATED (replaced with latest):**
+- `ralph.sh` - Runner script with latest features
+- `prompt.md` - Agent instructions with Playwright MCP, quality checklist, forbidden strings
+
+**What gets PRESERVED (your data):**
+- `prd.json` - Your stories and progress
+- `progress.txt` - Your learnings from iterations
+- `patterns.md` - Accumulated patterns across runs
+- `config` - Your notification settings
+
+### Step 4: Detect Run Directory
+
+Find or create the run directory:
+
+```bash
+BRANCH=$(git branch --show-current)
+
+# If on ralph/* branch, use that as run name
+if [[ "$BRANCH" == ralph/* ]]; then
+    RUN_NAME="${BRANCH#ralph/}"
+    RUN_DIR="scripts/ralph/runs/$RUN_NAME"
+
+    # Create if doesn't exist
+    if [ ! -d "$RUN_DIR" ]; then
+        mkdir -p "$RUN_DIR"
+        # Copy templates for new run
+        cp ~/.claude/templates/ralph/prompt.md "$RUN_DIR/"
+        cp ~/.claude/templates/ralph/progress.txt.template "$RUN_DIR/progress.txt"
+        cp ~/.claude/templates/ralph/prd.json.example "$RUN_DIR/prd.json"
+        # Replace placeholders
+        sed -i '' "s/{{RUN_NAME}}/$RUN_NAME/g" "$RUN_DIR/prompt.md"
+        sed -i '' "s/{{RUN_NAME}}/$RUN_NAME/g" "$RUN_DIR/progress.txt"
+        sed -i '' "s/{{DATE}}/$(date)/g" "$RUN_DIR/progress.txt"
+        sed -i '' "s/{{BRANCH_NAME}}/$BRANCH/g" "$RUN_DIR/progress.txt"
+    fi
+else
+    # Check how many runs exist
+    RUN_COUNT=$(ls -d scripts/ralph/runs/*/ 2>/dev/null | wc -l | tr -d ' ')
+
+    if [ "$RUN_COUNT" -eq 1 ]; then
+        RUN_NAME=$(basename "$(ls -d scripts/ralph/runs/*/)")
+    elif [ "$RUN_COUNT" -eq 0 ]; then
+        # Ask user for run name
+        echo "No runs found. What should this run be called?"
+    else
+        # Show available runs and ask
+        echo "Multiple runs found. Which one?"
+        ls -d scripts/ralph/runs/*/
+    fi
+fi
+```
+
+### Step 5: Handle Legacy Structure
+
+If project has old flat structure (prd.json directly in scripts/ralph/):
+
+```bash
+if [ -f "scripts/ralph/prd.json" ] && [ ! -d "scripts/ralph/runs" ]; then
+    echo "Detected legacy Ralph structure. Migrating..."
+
+    # Get branch name from prd.json
+    BRANCH=$(jq -r '.branchName' scripts/ralph/prd.json)
+    RUN_NAME="${BRANCH#ralph/}"
+
+    # Create new structure
+    mkdir -p "scripts/ralph/runs/$RUN_NAME"
+
+    # Move files
+    mv scripts/ralph/prd.json "scripts/ralph/runs/$RUN_NAME/"
+    mv scripts/ralph/progress.txt "scripts/ralph/runs/$RUN_NAME/" 2>/dev/null || true
+    [ -f scripts/ralph/prompt.md ] && mv scripts/ralph/prompt.md "scripts/ralph/runs/$RUN_NAME/"
+
+    # Update ralph.sh to new version
+    cp ~/.claude/templates/ralph/ralph.sh scripts/ralph/ralph.sh
+    chmod +x scripts/ralph/ralph.sh
+
+    echo "✅ Migrated to new structure: scripts/ralph/runs/$RUN_NAME/"
+fi
+```
+
+### Step 6: Verify All Files Exist
+
+Ensure all required files exist with proper content:
+
+```bash
+RUN_DIR="scripts/ralph/runs/$RUN_NAME"
+
+# Check/create patterns.md at ralph level
+if [ ! -f "scripts/ralph/patterns.md" ]; then
+    cp ~/.claude/templates/ralph/patterns.md.template scripts/ralph/patterns.md
+    echo "✅ Created patterns.md"
+fi
+
+# Check/create config
+if [ ! -f "scripts/ralph/config" ]; then
+    cp ~/.claude/templates/ralph/config.template scripts/ralph/config
+    echo "✅ Created config (edit for notifications)"
+fi
+
+# Check/create prompt.md in run directory
+if [ ! -f "$RUN_DIR/prompt.md" ]; then
+    cp ~/.claude/templates/ralph/prompt.md "$RUN_DIR/prompt.md"
+    sed -i '' "s/{{RUN_NAME}}/$RUN_NAME/g" "$RUN_DIR/prompt.md"
+    echo "✅ Created prompt.md with Playwright MCP tools"
+fi
+
+# Check/create progress.txt in run directory
+if [ ! -f "$RUN_DIR/progress.txt" ]; then
+    cp ~/.claude/templates/ralph/progress.txt.template "$RUN_DIR/progress.txt"
+    sed -i '' "s/{{RUN_NAME}}/$RUN_NAME/g" "$RUN_DIR/progress.txt"
+    sed -i '' "s/{{DATE}}/$(date)/g" "$RUN_DIR/progress.txt"
+    sed -i '' "s/{{BRANCH_NAME}}/$(git branch --show-current)/g" "$RUN_DIR/progress.txt"
+    echo "✅ Created progress.txt"
+fi
+
+# Check/create prd.json in run directory
+if [ ! -f "$RUN_DIR/prd.json" ]; then
+    cp ~/.claude/templates/ralph/prd.json.example "$RUN_DIR/prd.json"
+    # Update branchName to current branch
+    BRANCH=$(git branch --show-current)
+    jq --arg branch "$BRANCH" '.branchName = $branch' "$RUN_DIR/prd.json" > "$RUN_DIR/prd.json.tmp"
+    mv "$RUN_DIR/prd.json.tmp" "$RUN_DIR/prd.json"
+    echo "✅ Created prd.json (needs your stories)"
+fi
+
+# Verify ralph.sh is executable
+if [ ! -x "scripts/ralph/ralph.sh" ]; then
+    chmod +x scripts/ralph/ralph.sh
+    echo "✅ Made ralph.sh executable"
+fi
+```
+
+### Step 7: Guide User to PRD
+
+After setup is complete, help user with the PRD:
+
+```bash
+PRD_FILE="scripts/ralph/runs/$RUN_NAME/prd.json"
+
+# Check if PRD has real stories or is just example
+STORY_COUNT=$(jq '.userStories | length' "$PRD_FILE" 2>/dev/null || echo "0")
+FIRST_TITLE=$(jq -r '.userStories[0].title // empty' "$PRD_FILE" 2>/dev/null)
+
+if [ "$STORY_COUNT" -eq 0 ] || [ "$FIRST_TITLE" = "Story title (verb + noun)" ]; then
+    echo "📝 PRD needs your stories!"
+    echo ""
+    echo "Options:"
+    echo "1. Edit directly: $PRD_FILE"
+    echo "2. Convert existing PRD: /ralph convert <prd-file.md>"
+    echo ""
+    echo "After adding stories, run: ./scripts/ralph/ralph.sh 50"
+else
+    # Show status
+    COMPLETED=$(jq '[.userStories[] | select(.passes == true)] | length' "$PRD_FILE")
+    TOTAL=$(jq '.userStories | length' "$PRD_FILE")
+    REMAINING=$((TOTAL - COMPLETED))
+
+    echo "✅ Ralph is ready!"
+    echo ""
+    echo "Run: $RUN_NAME"
+    echo "Branch: $(git branch --show-current)"
+    echo "Stories: $COMPLETED/$TOTAL complete ($REMAINING remaining)"
+    echo ""
+    if [ "$REMAINING" -gt 0 ]; then
+        NEXT_STORY=$(jq -r '[.userStories[] | select(.passes == false)][0] | "\(.id): \(.title)"' "$PRD_FILE")
+        echo "Next: $NEXT_STORY"
+        echo ""
+    fi
+    echo "To run: ./scripts/ralph/ralph.sh 50"
+fi
+```
+
+### Step 8: Show File Summary
+
+Display what files exist and their status:
+
+```
+📁 Ralph Setup Complete!
+
+scripts/ralph/
+├── ralph.sh        ✅ v2.0.0 (executable)
+├── config          ✅ (edit for notifications)
+├── patterns.md     ✅ (persistent learnings)
+└── runs/
+    └── {RUN_NAME}/
+        ├── prd.json      ⚠️ Needs your stories
+        ├── prompt.md     ✅ Playwright MCP tools
+        └── progress.txt  ✅ Ready for learnings
+```
+
+---
+
+## PRD Conversion (Optional)
+
+If user has an existing PRD markdown file:
+
+```bash
+/ralph convert tasks/prd-my-feature.md
+```
+
+### Conversion Rules
+
+**Story Size (Critical):**
+- Each story must complete in ONE iteration
+- If you can't describe it in 2-3 sentences, split it
+
+**Story Order:**
+1. Schema/database changes
+2. Backend logic
+3. UI components
+4. Dashboard/aggregation views
+
+**Acceptance Criteria:**
+- Must be verifiable (not vague)
+- Always include: `"pnpm run typecheck passes"`
+- For UI: `"Verify in browser using Playwright MCP"`
+
+**Output Format:**
 ```json
 {
-  "project": "[Project Name]",
-  "branchName": "ralph/[feature-name-kebab-case]",
-  "description": "[Feature description from PRD title/intro]",
+  "project": "Project Name",
+  "branchName": "[current git branch]",
+  "description": "Feature description",
   "userStories": [
     {
       "id": "US-001",
-      "title": "[Story title]",
+      "title": "Story title",
       "description": "As a [user], I want [feature] so that [benefit]",
       "acceptanceCriteria": [
-        "Criterion 1",
-        "Criterion 2",
-        "Typecheck passes"
+        "Specific criterion",
+        "pnpm run typecheck passes"
       ],
       "priority": 1,
       "passes": false,
@@ -42,216 +375,87 @@ Take a PRD (markdown file or text) and convert it to `prd.json` in your ralph di
 
 ---
 
-## Story Size: The Number One Rule
+## Running Ralph
 
-**Each story must be completable in ONE Ralph iteration (one context window).**
+After PRD is ready:
 
-Ralph spawns a fresh Amp instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
+```bash
+./scripts/ralph/ralph.sh 50
+```
 
-### Right-sized stories:
-- Add a database column and migration
-- Add a UI component to an existing page
-- Update a server action with new logic
-- Add a filter dropdown to a list
-
-### Too big (split these):
-- "Build the entire dashboard" - Split into: schema, queries, UI components, filters
-- "Add authentication" - Split into: schema, middleware, login UI, session handling
-- "Refactor the API" - Split into one story per endpoint or pattern
-
-**Rule of thumb:** If you cannot describe the change in 2-3 sentences, it is too big.
+**CLI Options:**
+- `./ralph.sh 50` - Run 50 iterations, auto-detect run
+- `./ralph.sh 50 my-feature` - Specify run name
+- `./ralph.sh --dry-run 50` - Preview without running
+- `./ralph.sh --help` - Show help
+- `./ralph.sh --version` - Show version
 
 ---
 
-## Story Ordering: Dependencies First
+## How Ralph Works
 
-Stories execute in priority order. Earlier stories must not depend on later ones.
-
-**Correct order:**
-1. Schema/database changes (migrations)
-2. Server actions / backend logic
-3. UI components that use the backend
-4. Dashboard/summary views that aggregate data
-
-**Wrong order:**
-1. UI component (depends on schema that does not exist yet)
-2. Schema change
-
----
-
-## Acceptance Criteria: Must Be Verifiable
-
-Each criterion must be something Ralph can CHECK, not something vague.
-
-### Good criteria (verifiable):
-- "Add `status` column to tasks table with default 'pending'"
-- "Filter dropdown has options: All, Active, Completed"
-- "Clicking delete shows confirmation dialog"
-- "Typecheck passes"
-- "Tests pass"
-
-### Bad criteria (vague):
-- "Works correctly"
-- "User can do X easily"
-- "Good UX"
-- "Handles edge cases"
-
-### Always include as final criterion:
-```
-"Typecheck passes"
-```
-
-For stories with testable logic, also include:
-```
-"Tests pass"
-```
-
-### For stories that change UI, also include:
-```
-"Verify in browser using dev-browser skill"
-```
-
-Frontend stories are NOT complete until visually verified. Ralph will use the dev-browser skill to navigate to the page, interact with the UI, and confirm changes work.
+Each iteration:
+1. Read prd.json, find highest priority `passes: false` story
+2. Read progress.txt (Codebase Patterns first)
+3. Implement ONE story
+4. Run quality checks
+5. For UI: Verify with Playwright MCP
+6. Commit: `feat: [US-XXX] - [Story Title]`
+7. Set `passes: true` in prd.json
+8. Append to progress.txt
+9. If all done: output `<promise>COMPLETE</promise>`
 
 ---
 
-## Conversion Rules
+## Browser Testing
 
-1. **Each user story becomes one JSON entry**
-2. **IDs**: Sequential (US-001, US-002, etc.)
-3. **Priority**: Based on dependency order, then document order
-4. **All stories**: `passes: false` and empty `notes`
-5. **branchName**: Derive from feature name, kebab-case, prefixed with `ralph/`
-6. **Always add**: "Typecheck passes" to every story's acceptance criteria
-
----
-
-## Splitting Large PRDs
-
-If a PRD has big features, split them:
-
-**Original:**
-> "Add user notification system"
-
-**Split into:**
-1. US-001: Add notifications table to database
-2. US-002: Create notification service for sending notifications
-3. US-003: Add notification bell icon to header
-4. US-004: Create notification dropdown panel
-5. US-005: Add mark-as-read functionality
-6. US-006: Add notification preferences page
-
-Each is one focused change that can be completed and verified independently.
+For UI stories, uses Playwright MCP tools:
+- `mcp__plugin_playwright_playwright__browser_navigate`
+- `mcp__plugin_playwright_playwright__browser_snapshot`
+- `mcp__plugin_playwright_playwright__browser_click`
+- `mcp__plugin_playwright_playwright__browser_type`
+- `mcp__plugin_playwright_playwright__browser_take_screenshot`
 
 ---
 
-## Example
+## Configuration
 
-**Input PRD:**
-```markdown
-# Task Status Feature
+Edit `scripts/ralph/config` for:
 
-Add ability to mark tasks with different statuses.
+```bash
+# WhatsApp notifications
+NOTIFICATIONS_ENABLED=true
+TEXTMEBOT_API_KEY="your-key"
+TEXTMEBOT_PHONE="your-phone"
 
-## Requirements
-- Toggle between pending/in-progress/done on task list
-- Filter list by status
-- Show status badge on each task
-- Persist status in database
-```
-
-**Output prd.json:**
-```json
-{
-  "project": "TaskApp",
-  "branchName": "ralph/task-status",
-  "description": "Task Status Feature - Track task progress with status indicators",
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "Add status field to tasks table",
-      "description": "As a developer, I need to store task status in the database.",
-      "acceptanceCriteria": [
-        "Add status column: 'pending' | 'in_progress' | 'done' (default 'pending')",
-        "Generate and run migration successfully",
-        "Typecheck passes"
-      ],
-      "priority": 1,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-002",
-      "title": "Display status badge on task cards",
-      "description": "As a user, I want to see task status at a glance.",
-      "acceptanceCriteria": [
-        "Each task card shows colored status badge",
-        "Badge colors: gray=pending, blue=in_progress, green=done",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 2,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-003",
-      "title": "Add status toggle to task list rows",
-      "description": "As a user, I want to change task status directly from the list.",
-      "acceptanceCriteria": [
-        "Each row has status dropdown or toggle",
-        "Changing status saves immediately",
-        "UI updates without page refresh",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 3,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-004",
-      "title": "Filter tasks by status",
-      "description": "As a user, I want to filter the list to see only certain statuses.",
-      "acceptanceCriteria": [
-        "Filter dropdown: All | Pending | In Progress | Done",
-        "Filter persists in URL params",
-        "Typecheck passes",
-        "Verify in browser using dev-browser skill"
-      ],
-      "priority": 4,
-      "passes": false,
-      "notes": ""
-    }
-  ]
-}
+# Claude flags
+CLAUDE_FLAGS="--dangerously-skip-permissions"
 ```
 
 ---
 
-## Archiving Previous Runs
+## Templates Location
 
-**Before writing a new prd.json, check if there is an existing one from a different feature:**
+Global templates: `~/.claude/templates/ralph/`
 
-1. Read the current `prd.json` if it exists
-2. Check if `branchName` differs from the new feature's branch name
-3. If different AND `progress.txt` has content beyond the header:
-   - Create archive folder: `archive/YYYY-MM-DD-feature-name/`
-   - Copy current `prd.json` and `progress.txt` to archive
-   - Reset `progress.txt` with fresh header
-
-**The ralph.sh script handles this automatically** when you run it, but if you are manually updating prd.json between runs, archive first.
+| File | Purpose |
+|------|---------|
+| `VERSION` | Template version |
+| `ralph.sh` | Runner script |
+| `prompt.md` | Agent instructions |
+| `config.template` | Settings template |
+| `progress.txt.template` | Progress starter |
+| `patterns.md.template` | Patterns starter |
+| `prd.json.example` | Example PRD |
 
 ---
 
-## Checklist Before Saving
+## Summary
 
-Before writing prd.json, verify:
+| You Do | Ralph Does |
+|--------|-----------|
+| Run `/ralph` | Everything else |
+| Write PRD stories | Setup, sync, detect |
+| Run `./ralph.sh 50` | Execute iterations |
 
-- [ ] **Previous run archived** (if prd.json exists with different branchName, archive it first)
-- [ ] Each story is completable in one iteration (small enough)
-- [ ] Stories are ordered by dependency (schema to backend to UI)
-- [ ] Every story has "Typecheck passes" as criterion
-- [ ] UI stories have "Verify in browser using dev-browser skill" as criterion
-- [ ] Acceptance criteria are verifiable (not vague)
-- [ ] No story depends on a later story
+**That's it.** Just `/ralph` and work on your PRD.

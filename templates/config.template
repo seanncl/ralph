@@ -1,0 +1,35 @@
+# Ralph Configuration
+# Copy to scripts/ralph/config and customize
+
+# =============================================================================
+# NOTIFICATIONS (Optional)
+# =============================================================================
+
+# Enable WhatsApp notifications via TextMeBot
+NOTIFICATIONS_ENABLED=false
+
+# Get your API key at: https://www.textmebot.com/
+TEXTMEBOT_API_KEY=""
+
+# Your WhatsApp number with country code (e.g., +1234567890)
+TEXTMEBOT_PHONE=""
+
+# =============================================================================
+# CLAUDE FLAGS
+# =============================================================================
+
+# Permission mode for Claude CLI
+# Options:
+#   --dangerously-skip-permissions  (default, skips all prompts)
+#   --permission-mode acceptEdits   (accepts file edits, prompts for bash)
+CLAUDE_FLAGS="--dangerously-skip-permissions"
+
+# =============================================================================
+# ADVANCED OPTIONS
+# =============================================================================
+
+# Custom model (leave empty for default)
+# CLAUDE_MODEL=""
+
+# Custom max tokens (leave empty for default)
+# CLAUDE_MAX_TOKENS=""
